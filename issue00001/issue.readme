@@ -1,3 +1,41 @@
 * error:1. macro01.c:22: error: expected identifier before string constant
 * error:2. macro01.c:22: error: too few arguments to function ‘snprintf’
 * error:1. macro01.c:22: error: expected identifier before numeric constant
+原因1:一般情况下是枚举类型中的某个变量已经在其他文件中用#define定义过一次了,在使用时将他们两个文件都包括进来即会造成该问题.
+解决:将#define的定义删除或者更换名字
+原因2:常发生在多行带参数的宏定义中,由于宏中的参数名与宏体中每个非参数的token同名,造成非参数的token也被宏参数替换造成以上问题
+解决:可以使用gcc -E *.c读取预处理后的结果查看是否替换的结果正确,出错情况举例如下:
+struct test {
+        int type;
+        char name[16];
+};
+
+struct test content = {0, {0}};
+struct test *testp = &content;
+
+#define TEST_INIT(type, name) ({ \
+                 testp->type = (type); \
+                 snprintf(testp->name, sizeof(testp->name), "%s", name);})
+
+*string constant*
+TEST_INIT(type, "Light");
+
+gcc -E *.c后的结果
+({
+   testp->type = (type);
+   snprintf(testp->"Light", sizeof(testp->"Light"), "%s", "Light");});
+
+由于struct test中的字段name与宏参数名name的名字相同,当在实际使用时给name以非"name"的值传入时造成结构体中本不应该被替换的字段被替换了,即testp->name被替换成了testp->"Light",从而造成string constant的错误结果
+
+*numeric constant*
+TEST_INIT(1, name);
+
+gcc -E *.c后的结果
+({
+  testp->1 = (1);
+  snprintf(testp->name, sizeof(testp->name), "%s", name); });
+
+由于struct test中的字段type与宏参数名type的名字相同,当在实际使用时给type以非"type"的值传入时造成结构体中本不应该被替换的字段被替换了,即testp->type被替换成了testp->1,从而造成了numeric constant的错误结果
+
+解决:在设计带参数宏时,要严格定义参数的名称,避免参数名字与宏体中的某个token重名,以此避免不应该被替换的token被替换而造成错误的问题
+
